@@ -11,7 +11,7 @@
 #define MISO 13               //max6675 MISO
 #define SCK 12                //max6675 CLK
 #define CS 14                 //max6675 CS
-#define BUZZER  9             //pin for buzzer positive terminal
+#define BUZZER  10             //pin for buzzer positive terminal
 #define BUZZERNOTE 1000 
 #define SSR 11                //pin for SSR relay contolled with pwm
 #define FAN 10                //pin for FAn control mosfet with pwm
@@ -60,8 +60,12 @@ PID pid_fan(&input,&output_fan,&setpoint,kp_fan,ki_fan,kd_fan,REVERSE);
 
 reflowProfile reflow;
 
-const char* ssid = "TP-Link_413B";
-const char* password = "74518531";
+//const char* ssid = "TP-Link_413B";
+//const char* password = "74518531";
+
+const char* ssid = "Vodafone-NomePlaceholderAppa2223";
+const char* password = "SteMossetti";
+
 
 //variables to store the reflow values got from html /get
 const char* input_t1="input_t1";
@@ -129,23 +133,35 @@ void setup(){
     String t1_param;
     String time;
     String time_param;
+    String t2;
+    String t2_param;
     Serial.println("Recieved get call");
     t1=request->getParam(input_t1)->value();
     t1_param=input_t1;
 
     time=request->getParam(input_time)->value();
     time_param=input_time;
+
+    t2=request->getParam(input_t2)->value();
+    t2_param=input_t2;
+
     reflow.preHeat=atoi(t1.c_str());
     reflow.preHeatTime=atoi(time.c_str());
-    Serial.print("pre heat: ");
+    reflow.peakTemp=atoi(t2.c_str());
+
+    Serial.print("Pre heat: ");
     Serial.println(reflow.preHeat);
     Serial.print("Time: ");
     Serial.println(reflow.preHeatTime);
+    Serial.print("Peak Temp: ");
+    Serial.println(reflow.peakTemp);
+
     currentState=1;
     Serial.print("Starting Reflow: ");
+
     startBuzzer();
     state1start=millis();
-    request->send(200);
+    request->send(SPIFFS, "/index.html", "text/html");
   });
 
   server.serveStatic("/", SPIFFS, "/");
@@ -174,7 +190,8 @@ void loop(){
   getTemperature();
   checkBuzzer();
   calcSetpoint();
-    stateRoutine();
+  stateRoutine();
+  
   if ((millis() - lastSendToChart) > sendToChartDelay) {
     // Send Events to the client with the Sensor Readings Every 10 seconds
     events.send("ping",NULL,millis());
@@ -249,10 +266,10 @@ void stateRoutine(){
 
   case 2: //preheating the iron to reflow.preHeat temperature
     if(lastState!=2){
-      setpoint=reflow.preHeat;
       lastState=2;
       Serial.println("Entered state 2");
     }
+    setpoint=reflow.preHeat;
     pid_heater.Compute();
     analogWrite(SSR,output_heater);
     if(output_heater!=lastHeaterOutput){
@@ -278,6 +295,7 @@ void stateRoutine(){
       lastState=3;
       Serial.println("Entered state 3");
     }
+    setpoint=reflow.preHeat;
     pid_heater.Compute();
     pid_fan.Compute();
     analogWrite(SSR,output_heater);
@@ -292,6 +310,7 @@ void stateRoutine(){
       lastState=4;
       Serial.println("Entered state 4");
     }
+    setpoint=reflow.preHeat;
     pid_heater.Compute();
     pid_fan.Compute();
     analogWrite(SSR,output_heater);
@@ -306,6 +325,7 @@ void stateRoutine(){
       lastState=5;
       Serial.println("Entered state 5");
     }
+    setpoint=reflow.preHeat;
     pid_heater.Compute();
     pid_fan.Compute();
     analogWrite(SSR,output_heater);
@@ -331,7 +351,7 @@ void calcSetpoint(){
         setpoint=offTemp;
         break;
 
-      case 2:
+      case 2: //refow preheat curve
         if(MODE==1){
           setpoint=offTemp+(currentTime-state2start)*RAMPANGLE/1000;
           if(setpoint>reflow.preHeat) {
@@ -343,11 +363,11 @@ void calcSetpoint(){
         }
         break;
 
-      case 3:
+      case 3:   //reflow preheat stabilization
         setpoint=reflow.preHeat;
         break;
 
-      case 4:
+      case 4:   //reflow peaktemp
         if(MODE==1){
           setpoint=reflow.preHeat+(currentTime-state4start)*RAMPANGLE/1000;
           if(setpoint>reflow.peakTemp){
@@ -359,7 +379,7 @@ void calcSetpoint(){
         }   
         break;
         
-        case 5:
+        case 5:   //reflow cooling down
           if(MODE==1){
             setpoint=reflow.peakTemp-(currentTime-state5start)*RAMPANGLE/1000;
             if(setpoint<offTemp){
@@ -391,8 +411,8 @@ Serial.println(WiFi.localIP());
 }
 
 void pid_setup(){
-  pid_heater.SetOutputLimits(0,2^ANALOGWRITERESOLUTION);
-  pid_fan.SetOutputLimits(0,2^ANALOGWRITERESOLUTION);
+  pid_heater.SetOutputLimits(0,pow(2,ANALOGWRITERESOLUTION)-1);
+  pid_fan.SetOutputLimits(0,pow(2,ANALOGWRITERESOLUTION)-1);
   pinMode(SSR,OUTPUT);
   digitalWrite(SSR,LOW);
   pinMode(FAN,OUTPUT);
