@@ -7,6 +7,7 @@
 #include <max6675.h>          //thermocouple library
 #include <PID_v1.h>           //Pid control library
 #include <Arduino_JSON.h>     //JSON support library to record chart values
+#include "credentials.h"
 
 #define MISO 13               //max6675 MISO
 #define SCK 12                //max6675 CLK
@@ -60,12 +61,6 @@ PID pid_fan(&input,&output_fan,&setpoint,kp_fan,ki_fan,kd_fan,REVERSE);
 
 reflowProfile reflow;
 
-//const char* ssid = "TP-Link_413B";
-//const char* password = "74518531";
-
-const char* ssid = "Vodafone-NomePlaceholderAppa2223";
-const char* password = "SteMossetti";
-
 
 //variables to store the reflow values got from html /get
 const char* input_t1="input_t1";
@@ -76,7 +71,12 @@ const char* input_t2="input_t2";
 JSONVar readings;
 AsyncWebServer server(80);
 AsyncEventSource events("/events");
+const unsigned long wifiTimeout = 10000; // Timeout for each connection attempt
 
+//wifi connection timers
+unsigned long connectTimeoutMs=10000;
+unsigned long wifiCheckTimer=1000;
+unsigned long lastWifiCheck=0;
 //timers to regulate the buzzer start and stop
 const long buzzTime=500;
 bool buzzState=0;
@@ -397,19 +397,6 @@ void calcSetpoint(){
   }
 
 
-void wifiConnect(){
-//implementa funzione che si connette al wifi tra quelli saklvati che prende meglio, lista wifi da file wifiNetworks.h
-WiFi.mode(WIFI_STA);
-WiFi.begin(ssid, password);
-if (WiFi.waitForConnectResult() != WL_CONNECTED) {
-  Serial.println("Connecting...");
-  return;
-}
-Serial.println();
-Serial.print("IP Address: ");
-Serial.println(WiFi.localIP());
-}
-
 void pid_setup(){
   pid_heater.SetOutputLimits(0,pow(2,ANALOGWRITERESOLUTION)-1);
   pid_fan.SetOutputLimits(0,pow(2,ANALOGWRITERESOLUTION)-1);
@@ -421,15 +408,35 @@ void pid_setup(){
   pid_fan.SetMode(AUTOMATIC); 
 }
 
+void wifiConnect() {
+  WiFi.mode(WIFI_STA);
+  for (int i = 0; i < PASSNUM; i++) {
+    Serial.printf("Attempting to connect to SSID: %s\n", ssid[i]);
+    WiFi.begin(ssid[i], password[i]);
+
+    unsigned long startAttemptTime = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - startAttemptTime) < wifiTimeout) {
+      delay(500); // Wait 500ms between checks
+      Serial.print(".");
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("\nConnected to WiFi: SSID=%s\n", ssid[i]);
+      Serial.print("IP Address: ");
+      Serial.println(WiFi.localIP());
+      return; // Exit the function once connected
+    } else {
+      Serial.printf("\nFailed to connect to SSID: %s\n", ssid[i]);
+    }
+  }
+
+  Serial.println("Failed to connect to any WiFi network.");
+}
+
+
 /*
 Da fare:
-Crea funzione wifiConnect
 Sistemare void setup
 Scrivere commento legenda stati 
-Separare HTML e JS
 Test pid fan e calibrazionui(da fare a casa)
-aggiorna html con form peaktemp
-aggiorna html con blocco pulsante se i campi di input non sono validi
-sistema in calcsetpoint l'assegnazione multipla del setpoint quando resta costante
-capire come settare res analogWrite con def
 */
